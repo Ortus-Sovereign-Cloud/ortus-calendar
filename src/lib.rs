@@ -3,6 +3,7 @@
 //! An Ortus app crate: it depends on `ortus-core` only and hands its apps
 //! to a program through [`apps`].
 
+pub mod contacts;
 pub mod store;
 
 use std::borrow::Cow;
@@ -49,6 +50,10 @@ impl App for People {
             path: "/people",
             order: 3,
         }
+    }
+
+    fn migrations(&self) -> &'static [Migration] {
+        contacts::MIGRATIONS
     }
 
     fn web_file(&self, path: &str) -> Option<Cow<'static, [u8]>> {
