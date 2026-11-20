@@ -2186,11 +2186,13 @@ version = "0.1.0"
 dependencies = [
  "calcard-next",
  "ortus-core",
+ "quick-xml",
  "rust-embed",
  "rust-web-server",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]

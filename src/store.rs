@@ -9,10 +9,11 @@ use calcard::icalendar::{ICalendar, ICalendarComponentType, ICalendarProperty};
 use ortus_core::storage::{AsyncStore, AsyncTx, Migration, StoreError, StoreResult};
 use serde::Serialize;
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "calendars and events",
-    sql: "CREATE TABLE cal_calendars (
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "calendars and events",
+        sql: "CREATE TABLE cal_calendars (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         name TEXT NOT NULL,
@@ -48,7 +49,15 @@ pub const MIGRATIONS: &[Migration] = &[Migration {
         deleted BIGINT NOT NULL,
         PRIMARY KEY (calendar_id, sync)
     )",
-}];
+    },
+    Migration {
+        version: 2,
+        name: "calendars named by their apps",
+        sql: "ALTER TABLE cal_calendars ADD COLUMN path TEXT;
+    UPDATE cal_calendars SET path = id;
+    CREATE UNIQUE INDEX cal_calendars_path ON cal_calendars (user_id, path)",
+    },
+];
 
 /// Occurrences beyond this many are not expanded (a daily event for more
 /// than a century).
@@ -71,6 +80,8 @@ pub struct Calendar {
     pub name: String,
     pub color: String,
     pub sync: i64,
+    /// Its name in CalDAV paths (`/dav/calendar/home/<path>/`).
+    pub path: String,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -242,10 +253,11 @@ fn calendar_of(r: &ortus_core::storage::Row) -> Calendar {
         name: r.text(2).unwrap_or_default().into(),
         color: r.text(3).unwrap_or_default().into(),
         sync: r.int(4).unwrap_or(0),
+        path: r.text(5).or(r.text(0)).unwrap_or_default().into(),
     }
 }
 
-const CALENDAR: &str = "SELECT id, user_id, name, color, sync FROM cal_calendars";
+const CALENDAR: &str = "SELECT id, user_id, name, color, sync, path FROM cal_calendars";
 
 /// A person's calendars; the first visit makes "Calendar".
 pub async fn calendars(store: &dyn AsyncStore, user_id: &str) -> StoreResult<Vec<Calendar>> {
@@ -263,7 +275,7 @@ pub async fn calendars(store: &dyn AsyncStore, user_id: &str) -> StoreResult<Vec
     }
     store
         .execute(
-            "INSERT INTO cal_calendars (id, user_id, name, color, sync, created_at) VALUES ($1, $2, 'Calendar', 'accent', 1, $3) ON CONFLICT (user_id, name) DO NOTHING",
+            "INSERT INTO cal_calendars (id, user_id, name, color, sync, created_at, path) VALUES ($1, $2, 'Calendar', 'accent', 1, $3, $1) ON CONFLICT (user_id, name) DO NOTHING",
             &[new_id("cal_").into(), user_id.into(), now().into()],
         )
         .await?;
@@ -294,6 +306,90 @@ pub async fn calendar(
         .map(calendar_of))
 }
 
+/// One of a person's calendars by its CalDAV path name.
+pub async fn calendar_at(
+    store: &dyn AsyncStore,
+    user_id: &str,
+    path: &str,
+) -> StoreResult<Option<Calendar>> {
+    Ok(store
+        .query(
+            &format!("{CALENDAR} WHERE user_id = $1 AND path = $2"),
+            &[user_id.into(), path.into()],
+        )
+        .await?
+        .first()
+        .map(calendar_of))
+}
+
+/// Whether a name may be a calendar's path segment.
+pub fn path_ok(path: &str) -> bool {
+    !path.is_empty()
+        && path.len() <= 100
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+        && !path.starts_with('.')
+}
+
+/// Makes a calendar at the CalDAV path an app chose (MKCALENDAR).
+pub async fn create_calendar_at(
+    store: &dyn AsyncStore,
+    user_id: &str,
+    path: &str,
+    name: &str,
+    color: &str,
+) -> StoreResult<Option<Calendar>> {
+    if !path_ok(path) || calendar_at(store, user_id, path).await?.is_some() {
+        return Ok(None);
+    }
+    let Some(made) = create_calendar(store, user_id, name, color).await? else {
+        return Ok(None);
+    };
+    store
+        .execute(
+            "UPDATE cal_calendars SET path = $1 WHERE id = $2",
+            &[path.into(), made.id.as_str().into()],
+        )
+        .await?;
+    calendar(store, user_id, &made.id).await
+}
+
+/// Renames or recolours a calendar.
+pub async fn update_calendar(
+    store: &dyn AsyncStore,
+    user_id: &str,
+    id: &str,
+    name: Option<&str>,
+    color: Option<&str>,
+) -> StoreResult<bool> {
+    let mut changed = false;
+    if let Some(name) = name
+        .map(str::trim)
+        .filter(|n| !n.is_empty() && n.chars().count() <= 100 && !n.chars().any(char::is_control))
+    {
+        changed |= store
+            .execute(
+                "UPDATE cal_calendars SET name = $1 WHERE id = $2 AND user_id = $3",
+                &[name.into(), id.into(), user_id.into()],
+            )
+            .await?
+            == 1;
+    }
+    if let Some(color) =
+        color.filter(|c| ["accent", "teal", "orange", "lime", "red", "violet"].contains(c))
+    {
+        changed |= store
+            .execute(
+                "UPDATE cal_calendars SET color = $1 WHERE id = $2 AND user_id = $3",
+                &[color.into(), id.into(), user_id.into()],
+            )
+            .await?
+            == 1;
+    }
+    Ok(changed)
+}
+
 pub async fn create_calendar(
     store: &dyn AsyncStore,
     user_id: &str,
@@ -312,7 +408,7 @@ pub async fn create_calendar(
     let id = new_id("cal_");
     let added = store
         .execute(
-            "INSERT INTO cal_calendars (id, user_id, name, color, sync, created_at) VALUES ($1, $2, $3, $4, 1, $5) ON CONFLICT (user_id, name) DO NOTHING",
+            "INSERT INTO cal_calendars (id, user_id, name, color, sync, created_at, path) VALUES ($1, $2, $3, $4, 1, $5, $1) ON CONFLICT (user_id, name) DO NOTHING",
             &[id.as_str().into(), user_id.into(), name.into(), color.into(), now().into()],
         )
         .await?;

@@ -2,7 +2,8 @@
 # Every check CI runs, in the same order. Run it before each push.
 # Storage and file tests also need PostgreSQL and S3 (ORTUS_TEST_POSTGRES,
 # ORTUS_TEST_S3_*); mail with an outside server needs ci/outside-mail.sh
-# (ORTUS_TEST_OUTSIDE_MAILDIR, for invitations). CI requires them all.
+# (ORTUS_TEST_OUTSIDE_MAILDIR, for invitations); the DAV client test needs
+# vdirsyncer (VDIRSYNCER or PATH). CI requires them all.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ci/fetch.sh
@@ -22,5 +23,7 @@ cargo deny check
 ci/licence-gate-selftest.sh
 # The screens in a real browser, against the core with this app.
 cargo build --examples
+# A real CalDAV and CardDAV client syncing both ways (vdirsyncer).
+ci/dav-client-test.sh
 (cd web && npx playwright test)
 echo "all checks passed"

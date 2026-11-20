@@ -67,4 +67,8 @@ jobs:
           exit 1
       - name: The browser
         run: cd web && npm ci && npx playwright install --with-deps chromium
+      - name: A CalDAV and CardDAV client
+        run: pip install --user vdirsyncer==0.21.0 && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: ci/check.sh
+        env:
+          ORTUS_REQUIRE_DAV_CLIENT: "1"

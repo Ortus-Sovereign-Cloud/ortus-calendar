@@ -4,6 +4,8 @@
 //! to a program through [`apps`].
 
 pub mod contacts;
+pub mod dav;
+pub mod listener;
 pub mod store;
 
 use std::borrow::Cow;
@@ -34,6 +36,23 @@ impl App for Calendar {
         store::MIGRATIONS
     }
 
+    fn dav(&self) -> Option<ortus_core::dav::DavHandler> {
+        Some(dav::calendar)
+    }
+
+    fn well_known(&self) -> Vec<(&'static str, &'static str)> {
+        vec![("caldav", "/dav/calendar/")]
+    }
+
+    fn role_tasks(&self) -> Vec<ortus_core::app::RoleTask> {
+        // CalDAV and CardDAV on their own port: see listener.rs.
+        vec![ortus_core::app::RoleTask {
+            role: ortus_core::config::Role::Web,
+            name: "dav",
+            run: listener::run,
+        }]
+    }
+
     fn web_file(&self, path: &str) -> Option<Cow<'static, [u8]>> {
         Web::get(path).map(|file| file.data)
     }
@@ -54,6 +73,14 @@ impl App for People {
 
     fn migrations(&self) -> &'static [Migration] {
         contacts::MIGRATIONS
+    }
+
+    fn dav(&self) -> Option<ortus_core::dav::DavHandler> {
+        Some(dav::people)
+    }
+
+    fn well_known(&self) -> Vec<(&'static str, &'static str)> {
+        vec![("carddav", "/dav/people/")]
     }
 
     fn web_file(&self, path: &str) -> Option<Cow<'static, [u8]>> {
