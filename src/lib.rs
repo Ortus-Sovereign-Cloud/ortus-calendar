@@ -7,6 +7,7 @@ pub mod api;
 pub mod contacts;
 pub mod dav;
 pub mod listener;
+pub mod polls;
 pub mod schedule;
 pub mod store;
 
@@ -35,7 +36,9 @@ impl App for Calendar {
     }
 
     fn routes(&self) -> Vec<ortus_core::api::Route> {
-        api::routes()
+        let mut all = api::routes();
+        all.extend(polls::routes());
+        all
     }
 
     fn migrations(&self) -> &'static [Migration] {

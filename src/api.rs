@@ -329,6 +329,32 @@ impl EventInput {
     }
 }
 
+/// A new event's text with attendees, as the organiser makes it.
+pub(crate) fn event_text(
+    uid: &str,
+    me: &str,
+    name: &str,
+    summary: &str,
+    start: i64,
+    end: i64,
+    people: &[String],
+) -> String {
+    let input = EventInput {
+        calendar: None,
+        summary: summary.to_string(),
+        start,
+        end,
+        all_day: false,
+        location: String::new(),
+        description: String::new(),
+        attendees: people.to_vec(),
+        repeat: None,
+        focus: false,
+        private: false,
+    };
+    new_text(uid, input.lines(me, name, 0))
+}
+
 /// The names `EventInput::lines` sets; they are replaced on a change.
 const SET: &[&str] = &[
     "DTSTAMP",

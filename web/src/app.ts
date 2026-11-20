@@ -9,6 +9,7 @@ import {
   html,
 } from "ortus-kit";
 import "./calendar.js";
+import "./pick.js";
 import { ready, t } from "./i18n.js";
 
 await ready;

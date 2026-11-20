@@ -239,3 +239,104 @@ fn events_through_the_api() {
         assert_eq!(400, status);
     }
 }
+
+#[test]
+fn times_offered_by_mail_are_picked_once() {
+    for (name, instance, _keep) in common::installations() {
+        let olena = signed_in(&instance, "olena@ministry.example", Role::Member);
+        let marek = signed_in(&instance, "marek@ministry.example", Role::Member);
+        let client = TestClient::new(ortus_core::app(Arc::clone(&instance)));
+        let soon = (ortus_core::program::now_ms() / H + 48) * H;
+        // Marek is busy at the second time.
+        call(
+            &client,
+            &marek,
+            "POST",
+            "/calendar/events",
+            Some(json!({"summary": "Busy", "start": soon + H, "end": soon + 2 * H})),
+        );
+        let (status, offer) = call(
+            &client,
+            &olena,
+            "POST",
+            "/calendar/polls",
+            Some(
+                json!({"summary": "Shelter agreement review", "minutes": 30, "times": [soon, soon + H, soon + 2 * H], "people": ["marek@ministry.example", "anna@regional.example"]}),
+            ),
+        );
+        assert_eq!(200, status, "{name}: {offer}");
+        let token = offer["token"].as_str().unwrap().to_string();
+        assert!(offer["url"]
+            .as_str()
+            .unwrap()
+            .ends_with(&format!("/calendar/public/pick/{token}")));
+
+        // Anyone with the link sees the times still free, without signing in.
+        let shown = client
+            .get(&format!("/api/v1/calendar/polls/{token}"))
+            .send();
+        assert_eq!(200, shown.status(), "{name}");
+        let shown: Value = serde_json::from_str(shown.body_text()).unwrap();
+        assert_eq!(
+            json!([soon, soon + 2 * H]),
+            shown["times"],
+            "{name}: {shown}"
+        );
+        assert_eq!(json!("Shelter agreement review"), shown["summary"]);
+
+        let pick = |time: i64| {
+            client
+                .post(&format!("/api/v1/calendar/polls/{token}/pick"))
+                .header("X-Requested-With", "ortus")
+                .header("Content-Type", "application/json")
+                .body_text(&json!({ "time": time }).to_string())
+                .send()
+                .status()
+        };
+        assert_eq!(409, pick(soon + H), "{name}: not a free time");
+        // The outside attendee needs mail, which this program lacks: the
+        // event is still made; the invitation to Anna cannot go.
+        assert_eq!(200, pick(soon + 2 * H), "{name}");
+        assert_eq!(409, pick(soon), "{name}: picked once");
+        let (_, mine) = call(
+            &client,
+            &olena,
+            "GET",
+            &format!("/calendar/events?from={}&to={}", soon, soon + 3 * H),
+            None,
+        );
+        assert!(
+            mine["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["summary"] == "Shelter agreement review"
+                    && e["start"] == json!(soon + 2 * H)),
+            "{name}: {mine}"
+        );
+        let (_, his) = call(
+            &client,
+            &marek,
+            "GET",
+            &format!("/calendar/events?from={}&to={}", soon, soon + 3 * H),
+            None,
+        );
+        assert!(
+            his["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(
+                    |e| e["summary"] == "Shelter agreement review" && e["answer"] == "NEEDS-ACTION"
+                ),
+            "{name}: {his}"
+        );
+        assert_eq!(
+            404,
+            client
+                .get("/api/v1/calendar/polls/00000000000000000000000000000000")
+                .send()
+                .status()
+        );
+    }
+}

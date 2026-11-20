@@ -57,6 +57,23 @@ pub const MIGRATIONS: &[Migration] = &[
     UPDATE cal_calendars SET path = id;
     CREATE UNIQUE INDEX cal_calendars_path ON cal_calendars (user_id, path)",
     },
+    Migration {
+        version: 3,
+        name: "times offered by mail",
+        sql: "CREATE TABLE cal_polls (
+        token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        minutes BIGINT NOT NULL,
+        times TEXT NOT NULL,
+        people TEXT NOT NULL,
+        picked BIGINT,
+        event_id TEXT,
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL
+    );
+    CREATE INDEX cal_polls_user ON cal_polls (user_id)",
+    },
 ];
 
 /// Occurrences beyond this many are not expanded (a daily event for more
@@ -808,6 +825,7 @@ pub async fn forget(tx: &mut dyn AsyncTx, user_id: &str) -> StoreResult<()> {
         "DELETE FROM cal_changes WHERE calendar_id IN (SELECT id FROM cal_calendars WHERE user_id = $1)",
         "DELETE FROM cal_events WHERE calendar_id IN (SELECT id FROM cal_calendars WHERE user_id = $1)",
         "DELETE FROM cal_calendars WHERE user_id = $1",
+        "DELETE FROM cal_polls WHERE user_id = $1",
     ] {
         tx.execute(sql, &[user_id.into()]).await?;
     }

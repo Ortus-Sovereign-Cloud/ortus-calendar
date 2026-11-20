@@ -169,3 +169,24 @@ test("the month and a day", async ({ page }) => {
     1,
   );
 });
+
+test("someone outside picks an offered time without an account", async ({ browser, request }) => {
+  const soon = Math.ceil(Date.now() / H + 72) * H;
+  const offer = await (await request.post("/api/v1/calendar/polls", { headers, data: { summary: "Shelter agreement review", minutes: 30, times: [soon, soon + H], people: ["anna@regional.example"] } })).json();
+  const visitor = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const page = await visitor.newPage();
+  await page.goto(new URL(offer.url).pathname);
+  const pick = page.locator("ortus-calendar-public");
+  await expect(pick.getByRole("heading", { level: 1, name: en.pickTitle })).toBeVisible();
+  await expect(pick).toContainText("Olena Hrytsenko offers these times for “Shelter agreement review” (30 min).");
+  await expect(pick.getByRole("button")).toHaveCount(2);
+  await page.screenshot({ path: "test-results/calendar-pick.png" });
+  await pick.getByRole("button").first().click();
+  await expect(pick.getByRole("status")).toContainText("The invitation is on its way.");
+  await page.reload();
+  await expect(pick.getByRole("status")).toHaveText(en.pickTaken);
+  await visitor.close();
+  // It is in Olena's calendar.
+  const events = await (await request.get(`/api/v1/calendar/events?from=${soon}&to=${soon + H}`)).json();
+  expect(events.events.map((e: { summary: string }) => e.summary)).toContain("Shelter agreement review");
+});
