@@ -12,7 +12,7 @@ export default defineConfig({
   retries: 0,
   reporter: [["list"]],
   globalSetup: "./e2e/global-setup.ts",
-  use: { baseURL: `http://localhost:${port}`, viewport: { width: 1440, height: 900 }, colorScheme: "dark", storageState: "test-results/owner.json" },
+  use: { baseURL: `http://localhost:${port}`, viewport: { width: 1440, height: 900 }, colorScheme: "dark", timezoneId: "UTC", storageState: "test-results/owner.json" },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   webServer: [
     {

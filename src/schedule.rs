@@ -14,7 +14,7 @@ use crate::store;
 // --- iCalendar text, line by line ---
 
 /// Content lines, unfolded.
-fn unfold(text: &str) -> Vec<String> {
+pub(crate) fn unfold(text: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for raw in text.replace("\r\n", "\n").split('\n') {
         if (raw.starts_with(' ') || raw.starts_with('\t')) && !lines.is_empty() {
@@ -28,7 +28,7 @@ fn unfold(text: &str) -> Vec<String> {
 }
 
 /// Lines folded at 75 octets (on character boundaries), CRLF ended.
-fn fold(lines: &[String]) -> String {
+pub(crate) fn fold(lines: &[String]) -> String {
     let mut out = String::new();
     for line in lines {
         let mut used = 0;
@@ -47,7 +47,7 @@ fn fold(lines: &[String]) -> String {
 }
 
 /// A content line's name, its parameters and its value.
-fn split(line: &str) -> (String, Vec<(String, String)>, String) {
+pub(crate) fn split(line: &str) -> (String, Vec<(String, String)>, String) {
     // The value starts at the first colon outside quotes.
     let mut quoted = false;
     let mut cut = line.len();
@@ -100,7 +100,7 @@ fn join(name: &str, params: &[(String, String)], value: &str) -> String {
     out
 }
 
-fn mailto(value: &str) -> String {
+pub(crate) fn mailto(value: &str) -> String {
     let v = value.trim();
     v.strip_prefix("mailto:")
         .or_else(|| v.strip_prefix("MAILTO:"))
@@ -287,17 +287,19 @@ impl Ics {
 
 // --- Who is here ---
 
-/// The account of an address in this installation, if any.
-async fn local_user(instance: &Instance, email: &str) -> Option<String> {
+/// The account of an address in this installation, if any: invited,
+/// active or suspended (an unverified sign-up has not shown the address
+/// is theirs).
+pub(crate) async fn local_user(instance: &Instance, email: &str) -> Option<String> {
     ortus_core::auth::accounts::by_email(instance.store.as_ref(), email)
         .await
         .ok()
         .flatten()
-        .filter(|u| u.state == ortus_core::auth::accounts::State::Active)
+        .filter(|u| u.state != ortus_core::auth::accounts::State::Unverified)
         .map(|u| u.id)
 }
 
-async fn email_of(instance: &Instance, user: &str) -> Option<String> {
+pub(crate) async fn email_of(instance: &Instance, user: &str) -> Option<String> {
     ortus_core::auth::accounts::by_id(instance.store.as_ref(), user)
         .await
         .ok()

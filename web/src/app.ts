@@ -1,6 +1,14 @@
 // The calendar and people apps' client: the elements the shell shows at
 // /calendar and /people.
-import { LitElement, LocalizeController, controls, css, customElement, html } from "ortus-kit";
+import {
+  LitElement,
+  LocalizeController,
+  controls,
+  css,
+  customElement,
+  html,
+} from "ortus-kit";
+import "./calendar.js";
 import { ready, t } from "./i18n.js";
 
 await ready;
@@ -30,12 +38,14 @@ const page = css`
 
 @customElement("ortus-calendar-app")
 export class OrtusCalendarApp extends LitElement {
-  static override styles = [controls, page];
-  private readonly localize = new LocalizeController(this);
+  static override styles = css`
+    :host {
+      display: block;
+    }
+  `;
 
   override render() {
-    return html`<h1>${t(this.localize, "calendar")}</h1>
-      <section class="empty" role="status"><p>${t(this.localize, "calendarEmpty")}</p></section>`;
+    return html`<ortus-calendar-week></ortus-calendar-week>`;
   }
 }
 
@@ -46,6 +56,8 @@ export class OrtusPeopleApp extends LitElement {
 
   override render() {
     return html`<h1>${t(this.localize, "people")}</h1>
-      <section class="empty" role="status"><p>${t(this.localize, "peopleEmpty")}</p></section>`;
+      <section class="empty" role="status">
+        <p>${t(this.localize, "peopleEmpty")}</p>
+      </section>`;
   }
 }

@@ -3,6 +3,7 @@
 //! An Ortus app crate: it depends on `ortus-core` only and hands its apps
 //! to a program through [`apps`].
 
+pub mod api;
 pub mod contacts;
 pub mod dav;
 pub mod listener;
@@ -31,6 +32,10 @@ impl App for Calendar {
             path: "/calendar",
             order: 1,
         }
+    }
+
+    fn routes(&self) -> Vec<ortus_core::api::Route> {
+        api::routes()
     }
 
     fn migrations(&self) -> &'static [Migration] {

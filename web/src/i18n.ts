@@ -1,8 +1,16 @@
 // The calendar and people apps' texts, in the six languages, through the core's kit.
-import { appText, registerAppMessages, type LocalizeController, type Message } from "ortus-kit";
+import {
+  appText,
+  registerAppMessages,
+  type LocalizeController,
+  type Message,
+} from "ortus-kit";
 import en, { type CalendarKey } from "./locales/en.js";
 
-const catalogs: Record<string, () => Promise<{ default: Record<string, Message> }>> = {
+const catalogs: Record<
+  string,
+  () => Promise<{ default: Record<string, Message> }>
+> = {
   pl: () => import("./locales/pl.js"),
   uk: () => import("./locales/uk.js"),
   de: () => import("./locales/de.js"),
@@ -10,8 +18,14 @@ const catalogs: Record<string, () => Promise<{ default: Record<string, Message> 
   ar: () => import("./locales/ar.js"),
 };
 
-export const ready = registerAppMessages("calendar", en, async (code) => (code === "en" ? en : ((await catalogs[code]?.())?.default ?? {})));
+export const ready = registerAppMessages("calendar", en, async (code) =>
+  code === "en" ? en : ((await catalogs[code]?.())?.default ?? {}),
+);
 
-export function t(localize: LocalizeController, key: CalendarKey, args?: Record<string, string | number>): string {
+export function t(
+  localize: LocalizeController,
+  key: CalendarKey,
+  args?: Record<string, string | number>,
+): string {
   return appText(localize, "calendar", key, args);
 }
