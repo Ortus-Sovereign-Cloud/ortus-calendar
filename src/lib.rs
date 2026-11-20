@@ -10,6 +10,7 @@ pub mod index;
 pub mod listener;
 pub mod people_api;
 pub mod polls;
+pub mod restore;
 pub mod schedule;
 pub mod store;
 
@@ -77,6 +78,31 @@ impl App for Calendar {
 
     fn web_file(&self, path: &str) -> Option<Cow<'static, [u8]>> {
         Web::get(path).map(|file| file.data)
+    }
+
+    fn restorable(&self) -> &'static [&'static str] {
+        &["calendar"]
+    }
+
+    fn restore_choices<'a>(
+        &'a self,
+        point: &'a ortus_core::points::Snapshot,
+        user: &'a str,
+        _what: &'a str,
+    ) -> ortus_core::storage::BoxFuture<'a, Result<Vec<(String, String)>, String>> {
+        Box::pin(restore::choices(point, user))
+    }
+
+    fn restore<'a>(
+        &'a self,
+        instance: &'a Arc<ortus_core::instance::Instance>,
+        point: &'a ortus_core::points::Snapshot,
+        user: &'a str,
+        _what: &'a str,
+        id: &'a str,
+        into: &'a str,
+    ) -> ortus_core::storage::BoxFuture<'a, Result<String, String>> {
+        Box::pin(restore::calendar(instance, point, user, id, into))
     }
 }
 
