@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 calcard = { package = "calcard-next", version = "3.0", default-features = false }
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-bundle-always"] }
 quick-xml = "0.42"
 rust-embed = "8.14.0"
 rust-web-server = "18.34"

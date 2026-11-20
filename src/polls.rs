@@ -51,10 +51,10 @@ async fn offer(request: &Request, instance: &Arc<Instance>) -> Result<Response, 
         || input
             .times
             .iter()
-            .any(|t| *t < now || *t > now + 90 * 86_400_000)
+            .any(|t| *t < now || *t > now + 90 * 86_400_000 || t % 1_800_000 != 0)
     {
         return Err(ApiError::bad_request(
-            "Offer one to eight future times of 5 to 480 minutes.",
+            "Offer one to eight future times, on the hour or half hour, of 5 to 480 minutes.",
         ));
     }
     let people: Vec<String> = input
@@ -120,27 +120,23 @@ async fn poll(instance: &Instance, token: &str) -> Result<Poll, ApiError> {
 /// sender and their colleagues among the people.
 async fn open_times(instance: &Instance, p: &Poll) -> Vec<i64> {
     let now = ortus_core::program::now_ms();
-    let mut out = Vec::new();
-    for t in &p.times {
-        if *t <= now {
-            continue;
-        }
-        let free = schedule::free_times(
-            instance,
-            &p.user_id,
-            &p.people,
-            *t,
-            *t + p.minutes * 60_000,
-            p.minutes,
-            1,
-        )
-        .await
-        .unwrap_or_default();
-        if free.first() == Some(t) {
-            out.push(*t);
-        }
-    }
-    out
+    let wanted: Vec<i64> = p.times.iter().copied().filter(|t| *t > now).collect();
+    let (Some(from), Some(last)) = (wanted.iter().min(), wanted.iter().max()) else {
+        return Vec::new();
+    };
+    // One look at everyone's calendars for the whole span.
+    let free = schedule::free_times(
+        instance,
+        &p.user_id,
+        &p.people,
+        *from,
+        last + p.minutes * 60_000,
+        p.minutes,
+        200,
+    )
+    .await
+    .unwrap_or_default();
+    wanted.into_iter().filter(|t| free.contains(t)).collect()
 }
 
 /// What the link shows.
@@ -198,6 +194,30 @@ async fn pick(
     if claimed != 1 {
         return Err(ApiError::conflict("A time is already chosen."));
     }
+    match make_event(instance, token, &p, input.time).await {
+        Ok(()) => Ok(ok(&json!({ "picked": input.time }))),
+        Err(e) => {
+            // Nothing was made: the link stays open.
+            let _ = instance
+                .store
+                .execute(
+                    "UPDATE cal_polls SET picked = NULL WHERE token = $1",
+                    &[token.into()],
+                )
+                .await;
+            Err(e)
+        }
+    }
+}
+
+/// The event of a picked time, in the sender's calendar, everyone invited.
+async fn make_event(
+    instance: &Arc<Instance>,
+    token: &str,
+    p: &Poll,
+    time: i64,
+) -> Result<(), ApiError> {
+    let input = Pick { time };
     let s = instance.store.as_ref();
     let account = ortus_core::auth::accounts::by_id(s, &p.user_id)
         .await?
@@ -235,7 +255,7 @@ async fn pick(
     if let Err(e) = schedule::publish(instance, &p.user_id, None, &text).await {
         eprintln!("ortus: calendar: invitations for a picked time: {e}");
     }
-    Ok(ok(&json!({ "picked": input.time })))
+    Ok(())
 }
 
 fn h_offer(

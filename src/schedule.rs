@@ -108,6 +108,14 @@ pub(crate) fn mailto(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// One VEVENT in an event's lines.
+struct Block {
+    start: usize,
+    end: usize,
+    overrides: bool,
+    rid: Option<String>,
+}
+
 /// An event's text, to change and write back.
 struct Ics {
     lines: Vec<String>,
@@ -242,6 +250,157 @@ impl Ics {
             out.push(line.clone());
         }
         self.lines = out;
+    }
+
+    /// The SEQUENCE of the main event (0 when absent).
+    fn sequence(&self) -> i64 {
+        self.blocks()
+            .into_iter()
+            .find(|b| !b.overrides)
+            .and_then(|b| {
+                self.lines[b.start..b.end]
+                    .iter()
+                    .map(|l| split(l))
+                    .find(|(n, _, _)| n == "SEQUENCE")
+                    .and_then(|(_, _, v)| v.trim().parse().ok())
+            })
+            .unwrap_or(0)
+    }
+
+    /// The VEVENT blocks: where each starts and ends (exclusive), and its
+    /// RECURRENCE-ID if it changes one occurrence.
+    fn blocks(&self) -> Vec<Block> {
+        let mut out = Vec::new();
+        let mut start = None;
+        let mut depth = 0;
+        let mut rid: Option<String> = None;
+        for (i, line) in self.lines.iter().enumerate() {
+            let upper = line.to_ascii_uppercase();
+            if upper == "BEGIN:VEVENT" {
+                start = Some(i);
+                depth = 0;
+                rid = None;
+                continue;
+            }
+            if start.is_some() {
+                if upper.starts_with("BEGIN:") {
+                    depth += 1;
+                } else if upper.starts_with("END:") && upper != "END:VEVENT" {
+                    depth -= 1;
+                } else if upper == "END:VEVENT" {
+                    out.push(Block {
+                        start: start.take().unwrap_or(i),
+                        end: i + 1,
+                        overrides: rid.is_some(),
+                        rid: rid.take(),
+                    });
+                } else if depth == 0 {
+                    let (name, _, value) = split(line);
+                    if name == "RECURRENCE-ID" {
+                        rid = Some(value.trim().to_ascii_uppercase());
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether every VEVENT changes one occurrence (no series in it).
+    fn only_overrides(&self) -> bool {
+        let blocks = self.blocks();
+        !blocks.is_empty() && blocks.iter().all(|b| b.overrides)
+    }
+
+    /// The series with the occurrences `other` changes put in (replacing
+    /// earlier changes of the same occurrences).
+    fn with_overrides(&self, other: &Ics) -> Ics {
+        let incoming = other.blocks();
+        let rids: Vec<&str> = incoming.iter().filter_map(|b| b.rid.as_deref()).collect();
+        let mut lines = Vec::new();
+        let mut skip_until = 0;
+        let mine = self.blocks();
+        for (i, line) in self.lines.iter().enumerate() {
+            if i < skip_until {
+                continue;
+            }
+            if let Some(b) = mine
+                .iter()
+                .find(|b| b.start == i && b.rid.as_deref().is_some_and(|r| rids.contains(&r)))
+            {
+                skip_until = b.end;
+                continue;
+            }
+            if line.eq_ignore_ascii_case("END:VCALENDAR") {
+                for b in &incoming {
+                    lines.extend(other.lines[b.start..b.end].iter().cloned());
+                }
+            }
+            lines.push(line.clone());
+        }
+        Ics { lines }
+    }
+
+    /// Leaves out of the series the occurrences `other` names (EXDATE), and
+    /// drops changes made to them.
+    fn exclude(&mut self, other: &Ics) {
+        let gone: Vec<String> = other
+            .blocks()
+            .iter()
+            .filter_map(|b| {
+                other.lines[b.start..b.end]
+                    .iter()
+                    .find(|l| split(l).0 == "RECURRENCE-ID")
+                    .cloned()
+            })
+            .collect();
+        let rids: Vec<String> = other.blocks().into_iter().filter_map(|b| b.rid).collect();
+        let mine = self.blocks();
+        let mut lines = Vec::new();
+        let mut skip_until = 0;
+        for (i, line) in self.lines.iter().enumerate() {
+            if i < skip_until {
+                continue;
+            }
+            if let Some(b) = mine
+                .iter()
+                .find(|b| b.start == i && b.rid.as_ref().is_some_and(|r| rids.contains(r)))
+            {
+                skip_until = b.end;
+                continue;
+            }
+            lines.push(line.clone());
+            // After the series' DTSTART, its new EXDATEs.
+            if mine
+                .iter()
+                .any(|b| !b.overrides && i > b.start && i < b.end)
+                && split(line).0 == "DTSTART"
+            {
+                for rid in &gone {
+                    let (_, params, value) = split(rid);
+                    let params: Vec<(String, String)> =
+                        params.into_iter().filter(|(k, _)| k != "RANGE").collect();
+                    let mut out = "EXDATE".to_string();
+                    for (k, v) in &params {
+                        out.push_str(&format!(";{k}={v}"));
+                    }
+                    lines.push(format!("{out}:{value}"));
+                }
+            }
+        }
+        self.lines = lines;
+    }
+
+    /// Whether the series itself (not one occurrence) is cancelled.
+    fn main_cancelled(&self) -> bool {
+        self.blocks()
+            .into_iter()
+            .find(|b| !b.overrides)
+            .is_some_and(|b| {
+                self.lines[b.start..b.end].iter().any(|l| {
+                    let (name, _, value) = split(l);
+                    name == "STATUS" && value.trim().eq_ignore_ascii_case("CANCELLED")
+                })
+            })
     }
 
     /// Only the main VEVENT, only `attendee` among the attendees: a REPLY.
@@ -451,6 +610,12 @@ pub async fn publish(
                 )
                 .await
                 {
+                    // Only the organiser's own event is replaced: a copy
+                    // someone else organises is not ours to change.
+                    if Ics::parse(&theirs.ical).organizer().as_deref() != Some(me.as_str()) {
+                        eprintln!("ortus: calendar: not replacing an event of {user}'s organised by someone else");
+                        continue;
+                    }
                     if let Some(answer) = Ics::parse(&theirs.ical).partstat(email) {
                         copy.set_partstat(email, &answer);
                     }
@@ -491,20 +656,24 @@ pub async fn cancel_for(
     text: &str,
 ) -> Result<(), String> {
     let mut outside = Vec::new();
+    let me = email_of(instance, organizer).await.ok_or("no_account")?;
     let mut ics = Ics::parse(text);
     ics.cancel();
     for email in people {
         match local_user(instance, email).await {
             Some(user) => {
                 ics.set_method(None);
-                if let Ok(Some(_)) = store::event_by_uid(
+                if let Ok(Some(theirs)) = store::event_by_uid(
                     instance.store.as_ref(),
                     &user,
                     &ics.uid().unwrap_or_default(),
                 )
                 .await
                 {
-                    upsert(instance, &user, &ics.text()).await?;
+                    // Only a copy of the organiser's own event is cancelled.
+                    if Ics::parse(&theirs.ical).organizer().as_deref() == Some(me.as_str()) {
+                        upsert(instance, &user, &ics.text()).await?;
+                    }
                 }
             }
             None => outside.push(email.clone()),
@@ -577,7 +746,8 @@ pub async fn respond(
             // The organiser's copy shows the answer.
             if let Ok(Some(theirs)) = store::event_by_uid(s, &organizer_user, uid).await {
                 let mut copy = Ics::parse(&theirs.ical);
-                if copy.set_partstat(&me, &answer) {
+                let theirs_to_change = copy.organizer().as_deref() == Some(organizer.as_str());
+                if theirs_to_change && copy.set_partstat(&me, &answer) {
                     upsert(instance, &organizer_user, &copy.text()).await?;
                 }
             }
@@ -627,13 +797,25 @@ pub async fn receive(
         .map_err(|e| e.to_string())?;
     match method.as_str() {
         "REQUEST" | "PUBLISH" => {
-            // Only the organiser changes an event already in the calendar.
+            // An invitation comes from its organiser, and only they change
+            // the event later; an older one does not undo a newer.
+            if ics.organizer().as_deref() != Some(sender.as_str()) {
+                return Err("not_the_organizer".into());
+            }
             if let Some(e) = &existing {
-                if Ics::parse(&e.ical).organizer().is_some_and(|o| o != sender) {
+                let theirs = Ics::parse(&e.ical);
+                if theirs.organizer().as_deref() != Some(sender.as_str()) {
                     return Err("not_the_organizer".into());
                 }
+                if ics.sequence() < theirs.sequence() {
+                    return Err("stale".into());
+                }
             }
-            let mut copy = Ics::parse(text);
+            let mut copy = match &existing {
+                // One occurrence changed: merged into the series.
+                Some(e) if ics.only_overrides() => Ics::parse(&e.ical).with_overrides(&ics),
+                _ => Ics::parse(text),
+            };
             copy.set_method(None);
             let answer = existing
                 .as_ref()
@@ -669,7 +851,12 @@ pub async fn receive(
             if mine.organizer().is_none_or(|o| o != sender) {
                 return Err("not_the_organizer".into());
             }
-            mine.cancel();
+            if ics.only_overrides() {
+                // Some occurrences are off, not the series.
+                mine.exclude(&ics);
+            } else {
+                mine.cancel();
+            }
             let stored = upsert(instance, user, &mine.text()).await?;
             let answer = mine.partstat(&me);
             Ok(invitation("CANCEL", &mine, answer, Some(&stored)))
@@ -711,7 +898,7 @@ pub async fn agenda(
         });
         if event
             .as_ref()
-            .is_some_and(|e| e.ical.contains("STATUS:CANCELLED"))
+            .is_some_and(|e| Ics::parse(&e.ical).main_cancelled())
         {
             continue;
         }

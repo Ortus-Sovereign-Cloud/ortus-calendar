@@ -68,6 +68,10 @@ fn escape(text: &str) -> String {
         .replace(',', "\\,")
         .replace("\r\n", "\\n")
         .replace('\n', "\\n")
+        // No other control character may end or break a line.
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect()
 }
 
 fn unescape(text: &str) -> String {
@@ -100,7 +104,7 @@ fn civil(days: i64) -> (i64, i64, i64) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
-fn utc(ms: i64) -> String {
+pub(crate) fn utc(ms: i64) -> String {
     let (y, m, d) = civil(ms.div_euclid(DAY));
     let s = ms.rem_euclid(DAY) / 1000;
     format!(
@@ -111,9 +115,17 @@ fn utc(ms: i64) -> String {
     )
 }
 
-fn date(ms: i64) -> String {
+pub(crate) fn date(ms: i64) -> String {
     let (y, m, d) = civil(ms.div_euclid(DAY));
     format!("{y:04}{m:02}{d:02}")
+}
+
+/// A time as local date and time in a zone (`YYYYMMDDTHHMMSS`).
+fn local(zone: &jiff::tz::TimeZone, ms: i64) -> String {
+    let t = jiff::Timestamp::from_millisecond(ms).unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+    t.to_zoned(zone.clone())
+        .strftime("%Y%m%dT%H%M%S")
+        .to_string()
 }
 
 /// The first VEVENT's properties, by name (unescaped value).
@@ -242,6 +254,10 @@ struct EventInput {
     focus: bool,
     #[serde(default)]
     private: bool,
+    /// The person's time zone (IANA name): times are written in it, so
+    /// repeats keep their local time across daylight saving changes.
+    #[serde(default)]
+    tz: Option<String>,
 }
 
 impl EventInput {
@@ -273,6 +289,23 @@ impl EventInput {
         Ok(())
     }
 
+    /// The time zone given, when it is a real one.
+    fn zone(&self) -> Option<(String, jiff::tz::TimeZone)> {
+        let name = self.tz.as_deref()?.trim();
+        if name.is_empty()
+            || name.len() > 64
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "/_-+".contains(c))
+            || name.eq_ignore_ascii_case("UTC")
+        {
+            return None;
+        }
+        jiff::tz::TimeZone::get(name)
+            .ok()
+            .map(|z| (name.to_string(), z))
+    }
+
     /// The event's own lines (inside VEVENT), replacing what it sets.
     fn lines(&self, me: &str, name: &str, sequence: i64) -> Vec<String> {
         let mut out = vec![format!("DTSTAMP:{}", utc(ortus_core::program::now_ms()))];
@@ -282,6 +315,9 @@ impl EventInput {
                 "DTEND;VALUE=DATE:{}",
                 date(self.end.max(self.start + DAY))
             ));
+        } else if let Some((name, zone)) = self.zone() {
+            out.push(format!("DTSTART;TZID={name}:{}", local(&zone, self.start)));
+            out.push(format!("DTEND;TZID={name}:{}", local(&zone, self.end)));
         } else {
             out.push(format!("DTSTART:{}", utc(self.start)));
             out.push(format!("DTEND:{}", utc(self.end)));
@@ -316,7 +352,9 @@ impl EventInput {
         if !people.is_empty() {
             out.push(format!(
                 "ORGANIZER;CN=\"{}\":mailto:{me}",
-                name.replace('"', "'")
+                name.chars()
+                    .filter(|c| !c.is_control() && *c != '"')
+                    .collect::<String>()
             ));
             out.push(format!("ATTENDEE;PARTSTAT=ACCEPTED;ROLE=CHAIR:mailto:{me}"));
             for a in people {
@@ -351,6 +389,7 @@ pub(crate) fn event_text(
         repeat: None,
         focus: false,
         private: false,
+        tz: None,
     };
     new_text(uid, input.lines(me, name, 0))
 }
@@ -658,10 +697,11 @@ async fn change_event(
         store::calendar(s, &me.id, &target)
             .await?
             .ok_or_else(|| ApiError::not_found("There is no such calendar."))?;
-        store::delete_event(s, &me.id, &before.calendar_id, &before.href, None)
+        // Into the other calendar first: if that fails, nothing is lost.
+        store::put_event(s, &me.id, &target, &before.href, &text, None, true)
             .await
             .map_err(put_error)?;
-        store::put_event(s, &me.id, &target, &before.href, &text, None, true)
+        store::delete_event(s, &me.id, &before.calendar_id, &before.href, None)
             .await
             .map_err(put_error)?;
     } else {
@@ -853,6 +893,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn repeats_keep_their_local_time_across_daylight_saving() {
+        // Thursday 1 October 2026, 09:00 in Warsaw (07:00 UTC, summer time).
+        let start = 1_790_838_000_000;
+        let input = EventInput {
+            calendar: None,
+            summary: "Standup".into(),
+            start,
+            end: start + 900_000,
+            all_day: false,
+            location: String::new(),
+            description: String::new(),
+            attendees: vec![],
+            repeat: Some("weekly".into()),
+            focus: false,
+            private: false,
+            tz: Some("Europe/Warsaw".into()),
+        };
+        let text = new_text("w@x", input.lines("o@m.example", "O", 0));
+        assert!(
+            text.contains("DTSTART;TZID=Europe/Warsaw:20261001T090000"),
+            "{text}"
+        );
+        // Thursday 5 November 2026: winter time, 09:00 local is 08:00 UTC.
+        let nov5 = 1_793_836_800_000;
+        let found = store::occurrences(&text, nov5, nov5 + DAY);
+        assert_eq!(
+            vec![(nov5 + 8 * 3_600_000, nov5 + 8 * 3_600_000 + 900_000)],
+            found,
+            "{text}"
+        );
+        // Bad zones are ignored, not trusted.
+        let bad = EventInput {
+            tz: Some("Europe/Warsaw\r\nX".into()),
+            ..input
+        };
+        assert!(bad
+            .lines("o@m.example", "O", 0)
+            .iter()
+            .any(|l| l.starts_with("DTSTART:")));
+    }
+
+    #[test]
     fn changes_keep_what_is_not_set_and_answers() {
         let before = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:x\r\nDTSTART:20261126T140000Z\r\nDTEND:20261126T143000Z\r\nSUMMARY:Old\r\nORGANIZER:mailto:o@m.example\r\nATTENDEE;PARTSTAT=ACCEPTED:mailto:a@m.example\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT5M\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         let input = EventInput {
@@ -867,6 +949,7 @@ mod tests {
             repeat: Some("weekly".into()),
             focus: false,
             private: false,
+            tz: None,
         };
         let text = changed_text(before, input.lines("o@m.example", "O", 1));
         assert!(

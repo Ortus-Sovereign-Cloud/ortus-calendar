@@ -887,6 +887,7 @@ export class OrtusCalendarWeek extends LitElement {
     }
     const body = {
       calendar: d.calendar || undefined,
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
       summary: d.summary,
       start,
       end,

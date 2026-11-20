@@ -297,6 +297,12 @@ pub async fn put_card(
     }
     let etag = etag_of(text);
     let mut tx = store.begin().await?;
+    // Writers of one address book take turns (see store::put_event).
+    tx.execute(
+        "UPDATE ab_books SET sync = sync WHERE id = $1",
+        &[book_id.into()],
+    )
+    .await?;
     let existing = tx
         .query(
             "SELECT id, etag FROM ab_cards WHERE book_id = $1 AND href = $2",
@@ -375,6 +381,12 @@ pub async fn delete_card(
         return Err(PutError::NotFound);
     }
     let mut tx = store.begin().await?;
+    // Writers of one address book take turns (see store::put_event).
+    tx.execute(
+        "UPDATE ab_books SET sync = sync WHERE id = $1",
+        &[book_id.into()],
+    )
+    .await?;
     let rows = tx
         .query(
             "SELECT etag FROM ab_cards WHERE book_id = $1 AND href = $2",

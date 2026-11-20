@@ -250,9 +250,43 @@ fn expand(ical: &ICalendar) -> Vec<(i64, i64)> {
         .collect()
 }
 
+/// The text with every endless RRULE ending a day after `to`, so that
+/// expanding it stops near the window asked for.
+fn bounded(text: &str, to: i64) -> String {
+    let lines = crate::schedule::unfold(text);
+    let date_only = lines.iter().any(|l| {
+        let (name, params, value) = crate::schedule::split(l);
+        name == "DTSTART"
+            && (params
+                .iter()
+                .any(|(k, v)| k == "VALUE" && v.eq_ignore_ascii_case("DATE"))
+                || value.trim().len() == 8)
+    });
+    let until = to.saturating_add(86_400_000);
+    let stamp = if date_only {
+        crate::api::date(until)
+    } else {
+        crate::api::utc(until)
+    };
+    let out: Vec<String> = lines
+        .into_iter()
+        .map(|l| {
+            let upper = l.to_ascii_uppercase();
+            if upper.starts_with("RRULE") && !upper.contains("COUNT=") && !upper.contains("UNTIL=")
+            {
+                format!("{l};UNTIL={stamp}")
+            } else {
+                l
+            }
+        })
+        .collect();
+    crate::schedule::fold(&out)
+}
+
 /// The occurrences of an event between `from` and `to` (Unix ms).
 pub fn occurrences(text: &str, from: i64, to: i64) -> Vec<(i64, i64)> {
-    let Ok(ical) = ICalendar::parse(text) else {
+    let text = bounded(text, to);
+    let Ok(ical) = ICalendar::parse(&text) else {
         return Vec::new();
     };
     let mut all: Vec<(i64, i64)> = expand(&ical)
@@ -624,6 +658,13 @@ pub async fn put_event(
     }
     let etag = etag_of(text);
     let mut tx = store.begin().await?;
+    // Writers of one calendar take turns (the row lock lasts until commit),
+    // so If-Match is judged against what is really there.
+    tx.execute(
+        "UPDATE cal_calendars SET sync = sync WHERE id = $1",
+        &[calendar_id.into()],
+    )
+    .await?;
     let existing = tx
         .query(
             "SELECT id, etag, uid FROM cal_events WHERE calendar_id = $1 AND href = $2",
@@ -712,6 +753,11 @@ pub async fn delete_event(
         return Err(PutError::NotFound);
     }
     let mut tx = store.begin().await?;
+    tx.execute(
+        "UPDATE cal_calendars SET sync = sync WHERE id = $1",
+        &[calendar_id.into()],
+    )
+    .await?;
     let rows = tx
         .query(
             "SELECT etag FROM cal_events WHERE calendar_id = $1 AND href = $2",
