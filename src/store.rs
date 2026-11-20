@@ -168,6 +168,18 @@ pub fn facts(text: &str) -> Result<Facts, String> {
         .take(500)
         .collect();
     let organizer = text_of(ICalendarProperty::Organizer).map(|o| mailto(&o));
+    // One organiser for the whole event: an occurrence naming someone else
+    // could pass the sender check on one and show the other.
+    let organizer_of = |c: &&&_| {
+        let c: &calcard::icalendar::ICalendarComponent = c;
+        c.property(&ICalendarProperty::Organizer)
+            .and_then(|e| e.values.first())
+            .and_then(|v| v.as_text())
+            .map(mailto)
+    };
+    if events.iter().any(|c| organizer_of(&c) != organizer) {
+        return Err("several_organizers".into());
+    }
     let attendees = main
         .properties(&ICalendarProperty::Attendee)
         .filter_map(|e| {
@@ -915,6 +927,21 @@ mod tests {
     use super::*;
 
     const WEEKLY: &str = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\nBEGIN:VEVENT\r\nUID:standup@ministry.example\r\nDTSTAMP:20261101T000000Z\r\nDTSTART:20261102T093000Z\r\nDTEND:20261102T094500Z\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nSUMMARY:Standup\r\nORGANIZER;CN=Olena:mailto:olena@ministry.example\r\nATTENDEE;CN=Marek;PARTSTAT=ACCEPTED:mailto:Marek@ministry.example\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+    #[test]
+    fn one_organiser_for_the_whole_event() {
+        // The main event names the minister; an occurrence names the sender.
+        let forged = WEEKLY.replace(
+            "END:VEVENT\r\nEND:VCALENDAR",
+            "END:VEVENT\r\nBEGIN:VEVENT\r\nUID:standup@ministry.example\r\nRECURRENCE-ID:20261109T093000Z\r\nDTSTAMP:20261101T000000Z\r\nDTSTART:20261109T093000Z\r\nDTEND:20261109T094500Z\r\nSUMMARY:Standup\r\nORGANIZER:mailto:evil@example.org\r\nEND:VEVENT\r\nEND:VCALENDAR",
+        );
+        assert_eq!(
+            Err("several_organizers".to_string()),
+            facts(&forged).map(|_| ())
+        );
+        let same = forged.replace("mailto:evil@example.org", "mailto:olena@ministry.example");
+        assert!(facts(&same).is_ok());
+    }
 
     #[test]
     fn facts_and_occurrences() {

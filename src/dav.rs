@@ -707,7 +707,31 @@ async fn report(ctx: &Ctx<'_>, target: &Target, ask: &Ask) -> Result<Response, S
     let mut out = String::new();
     match root.as_str() {
         "calendar-multiget" | "addressbook-multiget" => {
-            for href in &ask.hrefs {
+            // Each item once, at most 1000 a request, at most 50 MB of answer:
+            // one request never holds the server's memory.
+            const MOST: usize = 1000;
+            const BYTES: usize = 50 * 1024 * 1024;
+            let mut seen = std::collections::HashSet::new();
+            let hrefs: Vec<&String> = ask
+                .hrefs
+                .iter()
+                .filter(|h| seen.insert(h.as_str()))
+                .collect();
+            if hrefs.len() > MOST {
+                return Ok(status(
+                    STATUS_CODE_REASON_PHRASE.n403_forbidden,
+                    "At most 1000 items a request",
+                    vec![],
+                ));
+            }
+            for href in hrefs {
+                if out.len() > BYTES {
+                    return Ok(status(
+                        STATUS_CODE_REASON_PHRASE.n403_forbidden,
+                        "The answer would be too large; ask for fewer items",
+                        vec![],
+                    ));
+                }
                 let name = decode(href.rsplit('/').next().unwrap_or_default());
                 match ctx.item(path, &name).await? {
                     Some((etag, data)) => out.push_str(&answer(href, &ctx.item_props(&etag, &data), ask)),
