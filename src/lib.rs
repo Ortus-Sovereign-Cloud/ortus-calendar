@@ -7,6 +7,7 @@ pub mod api;
 pub mod contacts;
 pub mod dav;
 pub mod listener;
+pub mod people_api;
 pub mod polls;
 pub mod schedule;
 pub mod store;
@@ -89,6 +90,10 @@ impl App for People {
             path: "/people",
             order: 3,
         }
+    }
+
+    fn routes(&self) -> Vec<ortus_core::api::Route> {
+        people_api::routes()
     }
 
     fn migrations(&self) -> &'static [Migration] {
