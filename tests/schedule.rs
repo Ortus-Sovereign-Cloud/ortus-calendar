@@ -133,7 +133,11 @@ fn invitations_answers_and_cancellations() {
             .expect("his copy");
         let start = 1_795_651_200_000 + 14 * 3_600_000;
         assert_eq!(
-            (Some("NEEDS-ACTION".to_string()), Some(start), Some(start + 1_800_000)),
+            (
+                Some("NEEDS-ACTION".to_string()),
+                Some(start),
+                Some(start + 1_800_000)
+            ),
             (copy.answer, copy.start_ms, copy.end_ms),
             "{name}"
         );
