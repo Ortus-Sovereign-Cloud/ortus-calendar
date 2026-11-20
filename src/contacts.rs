@@ -355,15 +355,18 @@ pub async fn put_card(
             now().into(),
         ]
     };
+    let fresh_id = new_id("vc_");
     match &existing {
         Some((id, _)) => {
             tx.execute("UPDATE ab_cards SET book_id = $2, href = $3, uid = $4, vcard = $5, etag = $6, name = $7, emails = $8, phones = $9, org = $10, sync = $11, updated_at = $12 WHERE id = $1", &values(id)).await?;
         }
         None => {
-            tx.execute("INSERT INTO ab_cards (id, book_id, href, uid, vcard, etag, name, emails, phones, org, sync, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)", &values(&new_id("vc_"))).await?;
+            tx.execute("INSERT INTO ab_cards (id, book_id, href, uid, vcard, etag, name, emails, phones, org, sync, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)", &values(&fresh_id)).await?;
         }
     }
     tx.commit().await?;
+    let card_id = existing.as_ref().map_or(fresh_id.clone(), |e| e.0.clone());
+    crate::index::card(store, user_id, &card_id, text, &facts.name).await;
     Ok(Put {
         etag,
         created: existing.is_none(),
@@ -389,10 +392,15 @@ pub async fn delete_card(
     .await?;
     let rows = tx
         .query(
-            "SELECT etag FROM ab_cards WHERE book_id = $1 AND href = $2",
+            "SELECT etag, id FROM ab_cards WHERE book_id = $1 AND href = $2",
             &[book_id.into(), href.into()],
         )
         .await?;
+    let card_id = rows
+        .first()
+        .and_then(|r| r.text(1))
+        .unwrap_or_default()
+        .to_string();
     let Some(current) = rows.first().and_then(|r| r.text(0)).map(str::to_string) else {
         tx.rollback().await?;
         return Ok(false);
@@ -408,6 +416,7 @@ pub async fn delete_card(
     .await?;
     changed(&mut *tx, book_id, href, true).await?;
     tx.commit().await?;
+    crate::index::remove(store, "people", &card_id).await;
     Ok(true)
 }
 

@@ -718,6 +718,7 @@ pub async fn put_event(
             now().into(),
         ]
     };
+    let fresh_id = new_id("ev_");
     match &existing {
         Some((id, _, _)) => {
             tx.execute(
@@ -729,12 +730,24 @@ pub async fn put_event(
         None => {
             tx.execute(
                 "INSERT INTO cal_events (id, calendar_id, href, uid, ical, etag, summary, starts_at, ends_at, recurring, all_day, busy, organizer, sync, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
-                &values(&new_id("ev_")),
+                &values(&fresh_id),
             )
             .await?;
         }
     }
     tx.commit().await?;
+    let event_id = existing
+        .as_ref()
+        .map_or(fresh_id.clone(), |(id, _, _)| id.clone());
+    crate::index::event(
+        store,
+        user_id,
+        &event_id,
+        text,
+        &facts.summary,
+        facts.starts_at,
+    )
+    .await;
     Ok(Put {
         etag,
         created: existing.is_none(),
@@ -760,10 +773,15 @@ pub async fn delete_event(
     .await?;
     let rows = tx
         .query(
-            "SELECT etag FROM cal_events WHERE calendar_id = $1 AND href = $2",
+            "SELECT etag, id FROM cal_events WHERE calendar_id = $1 AND href = $2",
             &[calendar_id.into(), href.into()],
         )
         .await?;
+    let event_id = rows
+        .first()
+        .and_then(|r| r.text(1))
+        .unwrap_or_default()
+        .to_string();
     let Some(current) = rows.first().and_then(|r| r.text(0)).map(str::to_string) else {
         tx.rollback().await?;
         return Ok(false);
@@ -779,6 +797,7 @@ pub async fn delete_event(
     .await?;
     changed(&mut *tx, calendar_id, href, true).await?;
     tx.commit().await?;
+    crate::index::remove(store, "calendar", &event_id).await;
     Ok(true)
 }
 

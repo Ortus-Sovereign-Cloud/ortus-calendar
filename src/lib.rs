@@ -6,6 +6,7 @@
 pub mod api;
 pub mod contacts;
 pub mod dav;
+pub mod index;
 pub mod listener;
 pub mod people_api;
 pub mod polls;
