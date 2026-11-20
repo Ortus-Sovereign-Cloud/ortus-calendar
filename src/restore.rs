@@ -41,10 +41,18 @@ pub async fn calendar(
     for e in &events {
         let uid = text(e, "uid");
         let fresh = format!("restored-{}-{uid}", ortus_core::auth::random_hex(6));
-        let ical = text(e, "ical")
+        // Unfolded first (a long UID may span lines), then every UID line,
+        // with parameters or without, gets the new one.
+        let unfolded = text(e, "ical")
+            .replace("\r\n ", "")
+            .replace("\r\n\t", "")
+            .replace("\n ", "")
+            .replace("\n\t", "");
+        let ical = unfolded
             .lines()
             .map(|l| {
-                if l.starts_with("UID:") {
+                let upper = l.to_ascii_uppercase();
+                if upper.starts_with("UID:") || upper.starts_with("UID;") {
                     format!("UID:{fresh}")
                 } else {
                     l.to_string()
