@@ -152,6 +152,20 @@ test("a new event with a colleague takes a time that works", async ({
   await page.screenshot({ path: "test-results/calendar-week.png" });
 });
 
+test("an event made before the calendars load goes to the first one", async ({ page }) => {
+  // The calendars arrive late; the editor is used at once.
+  await page.route("**/api/v1/calendar/calendars", async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue();
+  });
+  await page.goto("/calendar");
+  await week(page).getByRole("button", { name: en.newEvent }).click();
+  const editor = week(page).getByRole("dialog", { name: en.newEvent });
+  await editor.getByLabel(en.eventTitle).fill("Early bird");
+  await editor.getByRole("button", { name: en.save }).click();
+  await expect(editor).toBeHidden();
+});
+
 test("the month and a day", async ({ page }) => {
   await page.goto("/calendar");
   await week(page)

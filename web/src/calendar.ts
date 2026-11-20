@@ -886,7 +886,7 @@ export class OrtusCalendarWeek extends LitElement {
       end = start + DAY;
     }
     const body = {
-      calendar: d.calendar,
+      calendar: d.calendar || undefined,
       summary: d.summary,
       start,
       end,
