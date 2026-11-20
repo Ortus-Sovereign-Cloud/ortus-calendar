@@ -6,6 +6,7 @@
 pub mod contacts;
 pub mod dav;
 pub mod listener;
+pub mod schedule;
 pub mod store;
 
 use std::borrow::Cow;
@@ -42,6 +43,17 @@ impl App for Calendar {
 
     fn well_known(&self) -> Vec<(&'static str, &'static str)> {
         vec![("caldav", "/dav/calendar/")]
+    }
+
+    fn provide(
+        &self,
+        instance: &Arc<ortus_core::instance::Instance>,
+        services: &ortus_core::services::Services,
+    ) {
+        let service: Arc<dyn ortus_core::interfaces::Calendar> = Arc::new(schedule::Service {
+            instance: Arc::downgrade(instance),
+        });
+        services.provide("calendar", service);
     }
 
     fn role_tasks(&self) -> Vec<ortus_core::app::RoleTask> {
