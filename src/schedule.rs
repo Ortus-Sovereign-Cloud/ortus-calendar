@@ -597,9 +597,25 @@ pub async fn publish(
         })
         .unwrap_or_default();
     let mut outside = Vec::new();
+    // Colleagues invited for the first time also get the invitation by
+    // mail (their inbox and its catch-up card show it; answering there
+    // answers in the calendar). Changes reach them in the calendar only.
+    let was: Vec<String> = before
+        .map(|b| {
+            Ics::parse(b)
+                .attendees()
+                .into_iter()
+                .map(|(e, _)| e)
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut new_colleagues = Vec::new();
     for email in &now {
         match local_user(instance, email).await {
             Some(user) => {
+                if !was.contains(email) {
+                    new_colleagues.push(email.clone());
+                }
                 // Their own answer stays.
                 let mut copy = Ics::parse(after);
                 copy.set_method(None);
@@ -640,6 +656,27 @@ pub async fn publish(
                 &request.text(),
             )
             .await?;
+    }
+    if !new_colleagues.is_empty() {
+        let mut request = Ics::parse(after);
+        request.set_method(Some("REQUEST"));
+        let sent = match mailer(instance).await {
+            Ok(m) => {
+                m.send_invitation(
+                    organizer,
+                    &new_colleagues,
+                    &format!("Invitation: {subject}"),
+                    &format!("You are invited: {subject}"),
+                    &request.text(),
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        };
+        if let Err(e) = sent {
+            // The event is in their calendars already; the mail is extra.
+            eprintln!("ortus: calendar: invitation mail to colleagues: {e}");
+        }
     }
     if !gone.is_empty() {
         cancel_for(instance, organizer, &gone, after).await?;

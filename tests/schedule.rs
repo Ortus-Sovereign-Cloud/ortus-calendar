@@ -122,10 +122,13 @@ fn invitations_answers_and_cancellations() {
             "{name}: {}",
             mareks.ical
         );
+        // Anna by mail; Marek, invited for the first time, also by mail
+        // (his inbox shows it), besides the copy in his calendar.
         let sent = outbox.0.lock().unwrap().clone();
-        assert_eq!(1, sent.len(), "{name}: one mail, to Anna only");
+        assert_eq!(2, sent.len(), "{name}");
         assert_eq!(vec!["anna@regional.example".to_string()], sent[0].1);
-        assert!(sent[0].2.contains("METHOD:REQUEST"));
+        assert_eq!(vec!["marek@ministry.example".to_string()], sent[1].1);
+        assert!(sent.iter().all(|m| m.2.contains("METHOD:REQUEST")));
 
         // His copy waits for an answer, at the right time.
         let copy = block_on(schedule::copy(&instance, &marek, "review@ministry.example"))
