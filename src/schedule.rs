@@ -389,7 +389,13 @@ fn invitation(
         method: method.to_string(),
         summary: ics.summary(),
         start_ms: facts.as_ref().and_then(|f| f.starts_at),
-        end_ms: facts.as_ref().and_then(|f| f.ends_at),
+        // The end of the first occurrence.
+        end_ms: facts.as_ref().and_then(|f| {
+            let start = f.starts_at?;
+            store::occurrences(&ics.text(), start, start + 1)
+                .first()
+                .map(|(_, e)| *e)
+        }),
         organizer: ics.organizer(),
         answer,
         cancelled: ics
@@ -519,6 +525,28 @@ pub async fn cancel_for(
             .await?;
     }
     Ok(())
+}
+
+/// The person's copy of the event with `uid`, as an invitation.
+pub async fn copy(
+    instance: &Instance,
+    user: &str,
+    uid: &str,
+) -> Result<Option<Invitation>, String> {
+    let Some(event) = store::event_by_uid(instance.store.as_ref(), user, uid)
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    let me = email_of(instance, user).await.unwrap_or_default();
+    let ics = Ics::parse(&event.ical);
+    let answer = if ics.organizer().is_some_and(|o| o != me) {
+        ics.partstat(&me)
+    } else {
+        None
+    };
+    Ok(Some(invitation("REQUEST", &ics, answer, Some(&event))))
 }
 
 /// The person answers an invitation in their calendar.
@@ -782,6 +810,16 @@ impl ortus_core::interfaces::Calendar for Service {
         Box::pin(async move {
             let instance = self.instance()?;
             receive(&instance, user, sender, ics).await
+        })
+    }
+    fn invitation<'a>(
+        &'a self,
+        user: &'a str,
+        uid: &'a str,
+    ) -> ortus_core::storage::BoxFuture<'a, Result<Option<Invitation>, String>> {
+        Box::pin(async move {
+            let instance = self.instance()?;
+            copy(&instance, user, uid).await
         })
     }
     fn respond<'a>(

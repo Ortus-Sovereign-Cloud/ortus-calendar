@@ -127,6 +127,19 @@ fn invitations_answers_and_cancellations() {
         assert_eq!(vec!["anna@regional.example".to_string()], sent[0].1);
         assert!(sent[0].2.contains("METHOD:REQUEST"));
 
+        // His copy waits for an answer, at the right time.
+        let copy = block_on(schedule::copy(&instance, &marek, "review@ministry.example"))
+            .unwrap()
+            .expect("his copy");
+        let start = 1_795_651_200_000 + 14 * 3_600_000;
+        assert_eq!(
+            (Some("NEEDS-ACTION".to_string()), Some(start), Some(start + 1_800_000)),
+            (copy.answer, copy.start_ms, copy.end_ms),
+            "{name}"
+        );
+        assert!(block_on(schedule::copy(&instance, &marek, "nothing@here"))
+            .unwrap()
+            .is_none());
         // Marek accepts: Olena's copy shows it.
         let answered = block_on(schedule::respond(
             &instance,
