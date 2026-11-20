@@ -474,6 +474,15 @@ pub async fn delete_calendar(store: &dyn AsyncStore, user_id: &str, id: &str) ->
     if calendars(store, user_id).await?.len() < 2 || calendar(store, user_id, id).await?.is_none() {
         return Ok(false);
     }
+    let gone: Vec<String> = store
+        .query(
+            "SELECT id FROM cal_events WHERE calendar_id = $1",
+            &[id.into()],
+        )
+        .await?
+        .iter()
+        .filter_map(|r| r.text(0).map(str::to_string))
+        .collect();
     let mut tx = store.begin().await?;
     for sql in [
         "DELETE FROM cal_changes WHERE calendar_id = $1",
@@ -483,6 +492,10 @@ pub async fn delete_calendar(store: &dyn AsyncStore, user_id: &str, id: &str) ->
         tx.execute(sql, &[id.into()]).await?;
     }
     tx.commit().await?;
+    // Its events leave the search index too.
+    for event in gone {
+        crate::index::remove(store, "calendar", &event).await;
+    }
     Ok(true)
 }
 

@@ -50,5 +50,17 @@ fn events_and_contacts_are_found() {
         assert!(find("park").is_empty(), "{name}: gone with the event");
         block_on(contacts::delete_card(s, &olena, &book, "a.vcf", None)).unwrap();
         assert!(find("kowalska").is_empty(), "{name}");
+        // A whole calendar removed: its events leave the index.
+        let other = block_on(store::create_calendar(s, &olena, "Other", "teal"))
+            .unwrap()
+            .unwrap()
+            .id;
+        block_on(store::put_event(
+            s, &olena, &other, "r.ics", text, None, true,
+        ))
+        .unwrap();
+        assert!(!find("park").is_empty());
+        assert!(block_on(store::delete_calendar(s, &olena, &other)).unwrap());
+        assert!(find("park").is_empty(), "{name}: gone with the calendar");
     }
 }
