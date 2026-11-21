@@ -426,7 +426,7 @@ export class OrtusPeopleApp extends LitElement {
               this.colleagues,
               (c) => c.email,
               (c) => html`<li>
-                <span class="who"><span class="avatar ${tone(c.name || c.email)}" aria-hidden="true">${initials(c.name || c.email)}</span><span><strong dir="auto">${c.name}</strong><small>${c.email}</small></span></span>
+                <span class="who"><ortus-avatar class="avatar ${tone(c.name || c.email)}" aria-hidden="true" .name=${c.name || c.email} .email=${c.email ?? ""}></ortus-avatar><span><strong dir="auto">${c.name}</strong><small>${c.email}</small></span></span>
                 <span class="cell">${c.groups.join(", ")}</span>
                 <span></span>
                 <span class="actions">${this.mailTo(c.email)}</span>
@@ -467,7 +467,7 @@ export class OrtusPeopleApp extends LitElement {
               (c) => c.id,
               (c) => html`<li>
                 <button class="who" @click=${() => this.edit(c)} aria-label=${t(this.localize, "editContactOf", { who: c.name })}>
-                  <span class="avatar ${tone(c.name)}" aria-hidden="true">${initials(c.name)}</span><span><strong dir="auto">${c.name}</strong><small dir="auto">${c.title || c.emails[0] || ""}</small></span>
+                  <ortus-avatar class="avatar ${tone(c.name)}" aria-hidden="true" .name=${c.name} .email=${c.emails?.[0] ?? ""}></ortus-avatar><span><strong dir="auto">${c.name}</strong><small dir="auto">${c.title || c.emails[0] || ""}</small></span>
                 </button>
                 <span class="cell" dir="auto">${c.org}</span>
                 <span class="muted" dir="ltr">${c.phones[0] ?? ""}</span>

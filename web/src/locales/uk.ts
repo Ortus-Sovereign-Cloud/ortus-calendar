@@ -3,6 +3,10 @@ import type { CalendarKey, CalendarMessage } from "./en.js";
 const messages: Record<CalendarKey, CalendarMessage> = {
   calendar: "Календар",
   calendarEmpty: "Ще нічого не заплановано.",
+  todayAllDay: "Увесь день",
+  todayNothing: "Сьогодні більше нічого.",
+  todayOpen: "Відкрити календар",
+  todayJoin: "Приєднатися",
   people: "Люди",
   peopleEmpty: "Контактів ще немає.",
   searchPeople: "Пошук людей",

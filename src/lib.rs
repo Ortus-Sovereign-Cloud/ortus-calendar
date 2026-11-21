@@ -135,7 +135,12 @@ impl App for People {
         vec![("carddav", "/dav/people/")]
     }
 
+    // The client is shared with the calendar; its card on the start page
+    // (today.js) is the calendar's, not this app's.
     fn web_file(&self, path: &str) -> Option<Cow<'static, [u8]>> {
+        if path == "today.js" {
+            return None;
+        }
         Web::get(path).map(|file| file.data)
     }
 }

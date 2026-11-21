@@ -4,6 +4,10 @@ import type { Message } from "ortus-kit";
 const en = {
   calendar: "Calendar",
   calendarEmpty: "Nothing planned yet.",
+  todayAllDay: "All day",
+  todayNothing: "Nothing more today.",
+  todayOpen: "Open Calendar",
+  todayJoin: "Join",
   people: "People",
   peopleEmpty: "No contacts yet.",
   searchPeople: "Search people",
