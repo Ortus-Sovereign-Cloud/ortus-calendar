@@ -1196,6 +1196,20 @@ async fn handle(
     let client =
         ortus_core::auth::client_address(&request, &connection, &instance.config.trusted_proxies);
     let Some(user) = ortus_core::auth::by_header(&request, &instance, &client).await else {
+        // A browser (which marks its requests with Sec-Fetch-*) gets no
+        // Basic challenge: it would ask for a password over the web site
+        // itself. DAV apps never send those headers and get one.
+        let browser = request
+            .headers
+            .iter()
+            .any(|h| h.name.to_ascii_lowercase().starts_with("sec-fetch-"));
+        if browser {
+            return status(
+                STATUS_CODE_REASON_PHRASE.n401_unauthorized,
+                "Sign in with your address and an app password",
+                vec![],
+            );
+        }
         return unauthorized();
     };
     let Some(target) = target(&rest) else {
