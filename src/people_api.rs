@@ -45,13 +45,6 @@ fn query(request: &Request, name: &str) -> String {
         .unwrap_or_default()
 }
 
-fn like(q: &str) -> String {
-    format!(
-        "%{}%",
-        q.trim().to_lowercase().replace(['%', '_', '\\'], "")
-    )
-}
-
 async fn signed(
     request: &Request,
     instance: &Arc<Instance>,
@@ -72,40 +65,31 @@ async fn directory(request: &Request, instance: &Arc<Instance>) -> Result<Respon
     if q.len() > 100 || group.len() > 100 {
         return Err(ApiError::bad_request("The search is too long."));
     }
-    let rows = if group.is_empty() {
-        s.query("SELECT id, name, email FROM core_users WHERE state IN ('active', 'invited') AND (LOWER(name) LIKE $1 OR LOWER(email) LIKE $1) ORDER BY name LIMIT 500", &[like(&q).as_str().into()]).await?
-    } else {
-        s.query("SELECT u.id, u.name, u.email FROM core_users u JOIN core_group_members m ON m.user_id = u.id WHERE m.group_id = $2 AND u.state IN ('active', 'invited') AND (LOWER(u.name) LIKE $1 OR LOWER(u.email) LIKE $1) ORDER BY u.name LIMIT 500", &[like(&q).as_str().into(), group.as_str().into()]).await?
-    };
-    let memberships = s.query("SELECT m.user_id, g.name FROM core_group_members m JOIN core_groups g ON g.id = m.group_id ORDER BY g.name", &[]).await?;
-    let people: Vec<Value> = rows
+    let found = ortus_core::people::find(
+        s,
+        &q,
+        (!group.is_empty()).then_some(group.as_str()),
+        true,
+        500,
+    )
+    .await?;
+    let memberships = ortus_core::people::memberships(s).await?;
+    let people: Vec<Value> = found
         .iter()
-        .map(|r| {
-            let id = r.text(0).unwrap_or_default();
-            let groups: Vec<&str> = memberships.iter().filter(|m| m.text(0) == Some(id)).filter_map(|m| m.text(1)).collect();
-            json!({"name": r.text(1).unwrap_or_default(), "email": r.text(2).unwrap_or_default(), "groups": groups})
-        })
+        .map(|p| json!({"name": p.name, "email": p.email, "groups": memberships.get(&p.id).cloned().unwrap_or_default()}))
         .collect();
-    let total = s
-        .query(
-            "SELECT COUNT(*) FROM core_users WHERE state IN ('active', 'invited')",
-            &[],
-        )
-        .await?
-        .first()
-        .and_then(|r| r.int(0))
-        .unwrap_or(0);
+    let total = ortus_core::people::count(s, true).await?;
     Ok(ok(&json!({ "people": people, "total": total })))
 }
 
 /// The organisation's groups, with how many are in each.
 async fn groups(request: &Request, instance: &Arc<Instance>) -> Result<Response, ApiError> {
     signed(request, instance).await?;
-    let rows = instance
-        .store
-        .query("SELECT g.id, g.name, COUNT(u.id) FROM core_groups g LEFT JOIN core_group_members m ON m.group_id = g.id LEFT JOIN core_users u ON u.id = m.user_id AND u.state IN ('active', 'invited') GROUP BY g.id, g.name ORDER BY g.name", &[])
-        .await?;
-    let list: Vec<Value> = rows.iter().map(|r| json!({"id": r.text(0).unwrap_or_default(), "name": r.text(1).unwrap_or_default(), "members": r.int(2).unwrap_or(0)})).collect();
+    let list: Vec<Value> = ortus_core::people::groups(instance.store.as_ref())
+        .await?
+        .into_iter()
+        .map(|g| json!({"id": g.id, "name": g.name, "members": g.members}))
+        .collect();
     Ok(ok(&json!({ "groups": list })))
 }
 

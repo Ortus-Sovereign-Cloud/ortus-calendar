@@ -462,19 +462,17 @@ pub struct Colleague {
 
 /// The installation's people (active accounts), matching `q` when given.
 pub async fn directory(store: &dyn AsyncStore, q: &str, limit: i64) -> StoreResult<Vec<Colleague>> {
-    let like = format!(
-        "%{}%",
-        q.trim().to_lowercase().replace(['%', '_', '\\'], "")
-    );
-    Ok(store
-        .query(
-            "SELECT id, name, email FROM core_users WHERE state = 'active' AND (LOWER(name) LIKE $1 OR LOWER(email) LIKE $1) ORDER BY name, email LIMIT $2",
-            &[like.as_str().into(), limit.clamp(1, 1000).into()],
-        )
-        .await?
-        .iter()
-        .map(|r| Colleague { id: r.text(0).unwrap_or_default().into(), name: r.text(1).unwrap_or_default().into(), email: r.text(2).unwrap_or_default().into() })
-        .collect())
+    Ok(
+        ortus_core::people::find(store, q.trim(), None, false, limit.clamp(1, 1000))
+            .await?
+            .into_iter()
+            .map(|p| Colleague {
+                id: p.id,
+                name: p.name,
+                email: p.email,
+            })
+            .collect(),
+    )
 }
 
 /// A directory entry as a vCard (for CardDAV's directory book).
