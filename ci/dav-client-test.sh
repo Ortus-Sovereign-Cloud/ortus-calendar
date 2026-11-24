@@ -17,12 +17,12 @@ web=$((20000 + RANDOM % 20000)); dav=$((web + 1))
 cleanup() { kill "$server" 2>/dev/null || true; wait "$server" 2>/dev/null || true; rm -rf "$work"; }
 fail() { echo "dav-client: $*" >&2; sed -n '1,200p' "$work/server.log" >&2 || true; exit 1; }
 ORTUS_ROLES=web,worker ORTUS_WEB_PORT=$web ORTUS_DAV_LISTEN=127.0.0.1:$dav ORTUS_DATA_DIR="$work/data" \
-  ORTUS_SETUP_TOKEN=tok ORTUS_PUBLIC_URL=http://localhost:$web target/debug/examples/dev >"$work/server.log" 2>&1 &
+  ORTUS_SETUP_TOKEN=dav-client-setup-token ORTUS_PUBLIC_URL=http://localhost:$web target/debug/examples/dev >"$work/server.log" 2>&1 &
 server=$!
 trap cleanup EXIT
 for _ in $(seq 1 100); do curl -sf "http://127.0.0.1:$web/api/v1/health" >/dev/null && break; sleep 0.2; done
 curl -sf -c "$work/cookies" -H 'Content-Type: application/json' -H 'X-Requested-With: ortus' \
-  -d '{"token":"tok","name":"Olena Hrytsenko","email":"olena@ministry.example"}' "http://127.0.0.1:$web/api/v1/setup" >/dev/null || fail "setup"
+  -d '{"token":"dav-client-setup-token","name":"Olena Hrytsenko","email":"olena@ministry.example"}' "http://127.0.0.1:$web/api/v1/setup" >/dev/null || fail "setup"
 password=$(curl -sf -b "$work/cookies" -H 'Content-Type: application/json' -H 'X-Requested-With: ortus' \
   -d '{"name":"vdirsyncer"}' "http://127.0.0.1:$web/api/v1/me/app-passwords" | python3 -c 'import json,sys; print(json.load(sys.stdin)["password"])')
 user=olena@ministry.example
