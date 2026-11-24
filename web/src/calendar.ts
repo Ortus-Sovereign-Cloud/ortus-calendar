@@ -708,6 +708,9 @@ export class OrtusCalendarWeek extends LitElement {
         .times button {
           block-size: 44px;
         }
+        select.input {
+          min-block-size: 44px;
+        }
         form {
           padding: 16px;
         }
