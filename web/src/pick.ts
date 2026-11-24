@@ -23,20 +23,31 @@ export class OrtusCalendarPublic extends LitElement {
       :host {
         display: grid;
         place-items: center;
-        min-block-size: 100vh;
+        grid-template-columns: minmax(0, 584px);
+        justify-content: center;
+        min-block-size: 100dvh;
         padding: 24px;
         box-sizing: border-box;
         color: var(--ortus-text);
         background: var(--ortus-bg);
       }
       main {
-        inline-size: min(520px, 100%);
+        inline-size: 100%;
+        box-sizing: border-box;
         display: grid;
         gap: 18px;
         padding: 32px;
         border-radius: 18px;
         border: 1px solid var(--ortus-line);
         background: var(--ortus-surface);
+      }
+      @media (max-width: 720px) {
+        :host {
+          padding: 12px;
+        }
+        main {
+          padding: 20px;
+        }
       }
       .mark {
         inline-size: 36px;
@@ -58,11 +69,14 @@ export class OrtusCalendarPublic extends LitElement {
         display: grid;
         gap: 10px;
       }
-      li button {
+      li .button {
         inline-size: 100%;
         justify-content: start;
-        block-size: 52px;
+        block-size: auto;
+        min-block-size: 52px;
         font-size: 16px;
+        white-space: normal;
+        text-align: start;
       }
       .quiet {
         font-size: 14px;

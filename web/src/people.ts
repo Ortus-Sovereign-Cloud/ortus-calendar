@@ -57,7 +57,7 @@ export class OrtusPeopleApp extends LitElement {
       :host {
         display: grid;
         grid-template-rows: auto 1fr;
-        min-block-size: 100vh;
+        min-block-size: var(--ortus-screen, 100vh);
         color: var(--ortus-text);
       }
       header {
@@ -244,6 +244,8 @@ export class OrtusPeopleApp extends LitElement {
       }
       dialog {
         inline-size: min(520px, 92vw);
+        max-inline-size: calc(100vw - 16px);
+        box-sizing: border-box;
         padding: 0;
         border-radius: 18px;
         border: 1px solid var(--ortus-line-strong);
@@ -280,6 +282,77 @@ export class OrtusPeopleApp extends LitElement {
         margin: 0;
         color: var(--ortus-red);
         font-size: 14px;
+      }
+      .phone {
+        display: none;
+      }
+      /* A phone: the sections are a row of tabs over the list, and an
+         opened group is the whole screen with a way back. */
+      @media (max-width: 720px) {
+        header {
+          flex-wrap: wrap;
+          gap: 10px;
+          padding-block: 10px;
+          padding-inline: 12px;
+        }
+        .search {
+          order: 1;
+          inline-size: 100%;
+          min-block-size: 44px;
+        }
+        .button {
+          min-block-size: 44px;
+        }
+        .body {
+          grid-template-columns: minmax(0, 1fr);
+          align-content: start;
+          gap: 14px;
+          padding-block: 12px;
+          padding-inline: 12px;
+        }
+        nav {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        nav button {
+          block-size: 44px;
+          gap: 8px;
+        }
+        main {
+          min-inline-size: 0;
+        }
+        aside:empty,
+        .body.group nav {
+          display: none;
+        }
+        .phone {
+          display: inline-flex;
+        }
+        .back {
+          gap: 6px;
+          margin-block-end: 12px;
+        }
+        h2 {
+          margin-block-end: 12px;
+        }
+        .list li {
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 10px;
+          padding-inline: 14px;
+        }
+        .list li > :not(.who):not(.actions) {
+          display: none;
+        }
+        .who > span {
+          min-inline-size: 0;
+        }
+        .small {
+          block-size: 44px;
+        }
+        form {
+          padding: 16px;
+        }
       }
     `,
   ];
@@ -341,6 +414,11 @@ export class OrtusPeopleApp extends LitElement {
 
   private openGroup(g: GroupInfo): void {
     this.group = g;
+    void this.load();
+  }
+
+  private closeGroup(): void {
+    this.group = null;
     void this.load();
   }
 
@@ -408,7 +486,7 @@ export class OrtusPeopleApp extends LitElement {
         <span class="spacer"></span>
         <button class="button primary" @click=${() => this.edit(null)}>${t(this.localize, "newContact")}</button>
       </header>
-      <div class="body">
+      <div class="body ${this.group ? "group" : ""}">
         <nav aria-label=${t(this.localize, "people")}>
           ${sections.map(([id, name, count]) => html`<button aria-current=${this.section === id ? "page" : "false"} @click=${() => this.show(id)}><span>${name}</span><small>${count}</small></button>`)}
         </nav>
@@ -419,7 +497,7 @@ export class OrtusPeopleApp extends LitElement {
   }
 
   private renderDirectory() {
-    return html`<h2>${this.group ? this.group.name : t(this.localize, "organisation")}</h2>
+    return html`${this.group ? html`<button class="button phone back" @click=${() => this.closeGroup()}><span aria-hidden="true">${document.dir === "rtl" ? "›" : "‹"}</span>${t(this.localize, "back")}</button>` : nothing}<h2>${this.group ? this.group.name : t(this.localize, "organisation")}</h2>
       ${this.colleagues.length
         ? html`<ul class="list" aria-label=${this.group ? this.group.name : t(this.localize, "organisation")}>
             ${repeat(

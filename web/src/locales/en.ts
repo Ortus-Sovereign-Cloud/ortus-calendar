@@ -81,6 +81,7 @@ const en = {
   answerTentative: "Maybe",
   answerDeclined: "Declined",
   answerWaiting: "Not answered",
+  back: "Back",
 };
 
 export type CalendarKey = keyof typeof en;

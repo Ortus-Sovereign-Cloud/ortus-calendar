@@ -161,7 +161,7 @@ export class OrtusCalendarWeek extends LitElement {
       :host {
         display: grid;
         grid-template-rows: auto 1fr;
-        block-size: 100vh;
+        block-size: var(--ortus-screen, 100vh);
         box-sizing: border-box;
         color: var(--ortus-text);
       }
@@ -492,7 +492,9 @@ export class OrtusCalendarWeek extends LitElement {
       }
       dialog {
         inline-size: min(560px, 92vw);
-        max-block-size: 90vh;
+        max-inline-size: calc(100vw - 16px);
+        max-block-size: 90dvh;
+        box-sizing: border-box;
         padding: 0;
         border-radius: 18px;
         border: 1px solid var(--ortus-line-strong);
@@ -531,6 +533,12 @@ export class OrtusCalendarWeek extends LitElement {
         align-items: center;
         gap: 8px;
         font-size: 14px;
+      }
+      label.check input {
+        flex: none;
+        inline-size: 18px;
+        block-size: 18px;
+        margin: 0;
       }
       .times {
         display: flex;
@@ -592,6 +600,117 @@ export class OrtusCalendarWeek extends LitElement {
       .detail p {
         margin: 0;
         white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .phone {
+        display: none;
+      }
+      /* A phone: one pane at a time. The grid shows one day (or the
+         month); the month and the calendars are behind a button. */
+      @media (max-width: 720px) {
+        header.top {
+          flex-wrap: wrap;
+          gap: 8px;
+          padding-block: 10px;
+          padding-inline: 12px;
+        }
+        .phone {
+          display: inline-flex;
+        }
+        .segment:has(h1) {
+          padding: 0;
+          border: 0;
+          background: none;
+        }
+        .segment h1 {
+          padding-inline: 0;
+          background: none;
+          font-size: 18px;
+        }
+        .quick {
+          inline-size: 44px;
+          padding: 0;
+          font-size: 22px;
+        }
+        .nav,
+        .go-today,
+        .segment[role="group"] {
+          order: 1;
+        }
+        .segment button {
+          padding-inline: 10px;
+        }
+        .range {
+          order: 2;
+          flex-basis: 100%;
+          min-inline-size: 0;
+          font-size: 16px;
+        }
+        .segment button,
+        .segment h1,
+        .nav {
+          block-size: 44px;
+        }
+        .nav {
+          inline-size: 44px;
+        }
+        .button {
+          min-block-size: 44px;
+        }
+        .body {
+          grid-template-columns: minmax(0, 1fr);
+          padding-block: 12px;
+          padding-inline: 12px;
+        }
+        aside {
+          display: none;
+          overflow-y: auto;
+          min-block-size: 0;
+        }
+        .body.side aside {
+          display: flex;
+        }
+        .body.side .grid {
+          display: none;
+        }
+        .back {
+          align-self: start;
+          gap: 6px;
+        }
+        .mini td button {
+          inline-size: 44px;
+          block-size: 44px;
+          max-inline-size: 100%;
+          margin-block: 0;
+        }
+        .heads,
+        .cols {
+          grid-template-columns: 52px repeat(var(--days), minmax(0, 1fr));
+        }
+        .heads > div {
+          padding-inline: 8px;
+          min-inline-size: 0;
+          overflow: hidden;
+        }
+        .hours div {
+          padding-inline-start: 8px;
+        }
+        .month > div {
+          padding: 3px;
+          min-inline-size: 0;
+        }
+        .month .ev {
+          inset-inline: 0;
+          margin: 0;
+          padding-inline: 4px;
+          font-size: 11px;
+        }
+        .times button {
+          block-size: 44px;
+        }
+        form {
+          padding: 16px;
+        }
       }
     `,
   ];
@@ -609,6 +728,11 @@ export class OrtusCalendarWeek extends LitElement {
   @state() private error = "";
   @state() private busy = false;
   @state() private now = Date.now();
+  /** A phone-sized screen: one day instead of the week, the side panel behind a button. */
+  @state() private narrow = false;
+  /** On a phone: the side panel (month and calendars) shows instead of the grid. */
+  @state() private side = false;
+  private readonly phone = window.matchMedia("(max-width: 720px)");
   private account: Me | null = null;
   private timer = 0;
   private freeTimer = 0;
@@ -632,6 +756,8 @@ export class OrtusCalendarWeek extends LitElement {
     } catch {
       /* no storage */
     }
+    this.narrow = this.phone.matches;
+    this.phone.addEventListener("change", this.onPhone);
     void this.load();
     this.timer = window.setInterval(() => (this.now = Date.now()), 60_000);
     window.addEventListener("keydown", this.onKey);
@@ -641,6 +767,18 @@ export class OrtusCalendarWeek extends LitElement {
     super.disconnectedCallback();
     window.clearInterval(this.timer);
     window.removeEventListener("keydown", this.onKey);
+    this.phone.removeEventListener("change", this.onPhone);
+  }
+
+  private readonly onPhone = () => {
+    this.narrow = this.phone.matches;
+    if (!this.narrow) this.side = false;
+    void this.load();
+  };
+
+  /** What the grid shows: on a phone the week is one day at a time. */
+  private get shownView(): View {
+    return this.narrow && this.view === "week" ? "day" : this.view;
   }
 
   private readonly onKey = (e: KeyboardEvent) => {
@@ -655,7 +793,8 @@ export class OrtusCalendarWeek extends LitElement {
   }
 
   protected override updated(changed: PropertyValues): void {
-    if (changed.has("view")) this.scrollToMorning();
+    if (changed.has("view") || changed.has("narrow") || changed.has("side"))
+      this.scrollToMorning();
   }
 
   private scrollToMorning(): void {
@@ -665,9 +804,9 @@ export class OrtusCalendarWeek extends LitElement {
   }
 
   private range(): [number, number] {
-    if (this.view === "day")
+    if (this.shownView === "day")
       return [startOfDay(this.anchor), addDays(startOfDay(this.anchor), 1)];
-    if (this.view === "week")
+    if (this.shownView === "week")
       return [monday(this.anchor), addDays(monday(this.anchor), 5)];
     const first = monday(startOfMonth(this.anchor));
     return [first, addDays(first, 42)];
@@ -710,7 +849,7 @@ export class OrtusCalendarWeek extends LitElement {
     else
       this.go(
         this.view,
-        addDays(this.anchor, n * (this.view === "week" ? 7 : 1)),
+        addDays(this.anchor, n * (this.shownView === "week" ? 7 : 1)),
       );
   }
 
@@ -959,10 +1098,10 @@ export class OrtusCalendarWeek extends LitElement {
 
   override render() {
     return html`${this.renderTop()}
-      <div class="body">
+      <div class="body ${this.side ? "side" : ""}">
         ${this.renderSide()}
         <section class="grid" aria-label=${this.rangeTitle()}>
-          ${this.view === "month" ? this.renderMonth() : this.renderDays()}
+          ${this.shownView === "month" ? this.renderMonth() : this.renderDays()}
         </section>
       </div>
       ${this.renderEditor()} ${this.renderViewer()}`;
@@ -970,7 +1109,7 @@ export class OrtusCalendarWeek extends LitElement {
 
   private rangeTitle(): string {
     const [from, to] = this.range();
-    if (this.view === "day")
+    if (this.shownView === "day")
       return fmt(from, {
         weekday: "long",
         day: "numeric",
@@ -990,11 +1129,18 @@ export class OrtusCalendarWeek extends LitElement {
   private renderTop() {
     const views: [View, CalendarKey][] = [
       ["day", "viewDay"],
-      ["week", "viewWeek"],
+      ...(this.narrow ? [] : ([["week", "viewWeek"]] as [View, CalendarKey][])),
       ["month", "viewMonth"],
     ];
     return html`<header class="top">
       <div class="segment"><h1>${t(this.localize, "calendar")}</h1></div>
+      <button
+        class="button phone"
+        aria-expanded=${this.side ? "true" : "false"}
+        @click=${() => (this.side = !this.side)}
+      >
+        ${t(this.localize, "calendars")}
+      </button>
       <span class="spacer"></span>
       <button
         class="button nav"
@@ -1003,7 +1149,7 @@ export class OrtusCalendarWeek extends LitElement {
       >
         <span aria-hidden="true">${document.dir === "rtl" ? "›" : "‹"}</span>
       </button>
-      <button class="button" @click=${() => this.go(this.view, Date.now())}>
+      <button class="button go-today" @click=${() => this.go(this.view, Date.now())}>
         ${t(this.localize, "today")}
       </button>
       <button
@@ -1015,13 +1161,14 @@ export class OrtusCalendarWeek extends LitElement {
       </button>
       <p class="range" aria-live="polite">${this.rangeTitle()}</p>
       <div class="segment" role="group" aria-label=${t(this.localize, "view")}>
-        ${views.map(([v, key]) => html`<button aria-pressed=${this.view === v ? "true" : "false"} @click=${() => this.go(v, this.anchor)}>${t(this.localize, key)}</button>`)}
+        ${views.map(([v, key]) => html`<button aria-pressed=${this.shownView === v ? "true" : "false"} @click=${() => this.go(v, this.anchor)}>${t(this.localize, key)}</button>`)}
       </div>
       <button
-        class="button"
+        class="button quick"
+        aria-label=${this.narrow ? t(this.localize, "quickAdd") : nothing}
         @click=${() => this.newEvent(nextHalfHour(Date.now()))}
       >
-        ${t(this.localize, "quickAdd")}<kbd>Ctrl K</kbd>
+        ${this.narrow ? html`<span aria-hidden="true">+</span>` : html`${t(this.localize, "quickAdd")}<kbd>Ctrl K</kbd>`}
       </button>
     </header>`;
   }
@@ -1043,6 +1190,10 @@ export class OrtusCalendarWeek extends LitElement {
       fmt(addDays(start, i), { weekday: "narrow" }),
     );
     return html`<aside>
+      <button class="button phone back" @click=${() => (this.side = false)}>
+        <span aria-hidden="true">${document.dir === "rtl" ? "›" : "‹"}</span>
+        ${t(this.localize, "back")}
+      </button>
       <button
         class="new"
         @click=${() => this.newEvent(nextHalfHour(Date.now()))}
@@ -1069,9 +1220,9 @@ export class OrtusCalendarWeek extends LitElement {
                       ? html`<td></td>`
                       : html`<td>
                           <button
-                            class="${day === today ? "today" : ""} ${day >= from && day < to && this.view !== "month" ? "shown" : ""}"
+                            class="${day === today ? "today" : ""} ${day >= from && day < to && this.shownView !== "month" ? "shown" : ""}"
                             aria-label=${fmt(day, { day: "numeric", month: "long" })}
-                            @click=${() => this.go(this.view === "month" ? "day" : this.view, day)}
+                            @click=${() => ((this.side = false), this.go(this.view === "month" ? "day" : this.view, day))}
                           >
                             ${new Date(day).getDate()}
                           </button>
@@ -1103,7 +1254,7 @@ export class OrtusCalendarWeek extends LitElement {
 
   private renderDays() {
     const [from] = this.range();
-    const count = this.view === "day" ? 1 : 5;
+    const count = this.shownView === "day" ? 1 : 5;
     const days = Array.from({ length: count }, (_, i) => addDays(from, i));
     const today = startOfDay(this.now);
     const events = this.shown();
@@ -1184,7 +1335,7 @@ export class OrtusCalendarWeek extends LitElement {
     const today = startOfDay(this.now);
     return html`<div
         class="heads"
-        .style=${"--days: 7; grid-template-columns: repeat(7, 1fr)"}
+        .style=${"--days: 7; grid-template-columns: repeat(7, minmax(0, 1fr))"}
       >
         ${[0, 1, 2, 3, 4, 5, 6].map((i) => html`<div>${fmt(addDays(from, i), { weekday: "short" })}</div>`)}
       </div>
@@ -1376,9 +1527,7 @@ export class OrtusCalendarWeek extends LitElement {
           ? html`<form method="dialog">
               <h2>${e.summary}</h2>
               <div class="detail">
-                <p>
-                  ${e.allDay ? fmt(e.start, { weekday: "long", day: "numeric", month: "long" }) : `${fmt(e.start, { weekday: "long", day: "numeric", month: "long" })} · ${hm(e.start)}–${hm(e.end)}`}
-                </p>
+                <p>${e.allDay ? fmt(e.start, { weekday: "long", day: "numeric", month: "long" }) : `${fmt(e.start, { weekday: "long", day: "numeric", month: "long" })} · ${hm(e.start)}–${hm(e.end)}`}</p>
                 ${e.location ? html`<p>${e.location}</p>` : nothing}
                 ${e.description ? html`<p>${e.description}</p>` : nothing}
                 ${e.organizer && !e.mine ? html`<p>${t(this.localize, "invitedBy", { who: e.organizer })}</p>` : nothing}

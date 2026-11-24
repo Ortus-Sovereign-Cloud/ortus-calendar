@@ -80,6 +80,7 @@ const messages: Record<CalendarKey, CalendarMessage> = {
   answerTentative: "Можливо",
   answerDeclined: "Відхилено",
   answerWaiting: "Без відповіді",
+  back: "Назад",
 };
 
 export default messages;
