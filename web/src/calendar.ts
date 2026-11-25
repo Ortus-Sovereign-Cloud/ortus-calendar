@@ -360,6 +360,10 @@ export class OrtusCalendarWeek extends LitElement {
         flex-direction: column;
         gap: 2px;
       }
+      .scroll:focus-visible {
+        outline: 2px solid var(--ortus-accent, #8c9eff);
+        outline-offset: -2px;
+      }
       .scroll {
         overflow-y: auto;
         min-block-size: 0;
@@ -1282,7 +1286,12 @@ export class OrtusCalendarWeek extends LitElement {
             </div>`,
         )}
       </div>
-      <div class="scroll">
+      <div
+        class="scroll"
+        tabindex="0"
+        role="region"
+        aria-label=${count === 1 ? fmt(days[0]!, { weekday: "long", day: "numeric", month: "long" }) : `${fmt(days[0]!, { day: "numeric", month: "long" })} – ${fmt(days[count - 1]!, { day: "numeric", month: "long" })}`}
+      >
         <div class="cols" .style=${`--days: ${count}`}>
           <div class="hours">
             ${Array.from({ length: 24 }, (_, h) => html`<div>${hm(addDays(from, 0) + h * 3_600_000)}</div>`)}
