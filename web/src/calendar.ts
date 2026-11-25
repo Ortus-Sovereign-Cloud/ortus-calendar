@@ -165,6 +165,12 @@ export class OrtusCalendarWeek extends LitElement {
         box-sizing: border-box;
         color: var(--ortus-text);
       }
+      /* Previous, Today and next stay together when the header wraps. */
+      .steps {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
       header.top {
         display: flex;
         align-items: center;
@@ -1145,6 +1151,7 @@ export class OrtusCalendarWeek extends LitElement {
         ${t(this.localize, "calendars")}
       </button>
       <span class="spacer"></span>
+      <span class="steps">
       <button
         class="button nav"
         aria-label=${t(this.localize, "previous")}
@@ -1162,6 +1169,7 @@ export class OrtusCalendarWeek extends LitElement {
       >
         <span aria-hidden="true">${document.dir === "rtl" ? "‹" : "›"}</span>
       </button>
+      </span>
       <p class="range" aria-live="polite">${this.rangeTitle()}</p>
       <div class="segment" role="group" aria-label=${t(this.localize, "view")}>
         ${views.map(([v, key]) => html`<button aria-pressed=${this.shownView === v ? "true" : "false"} @click=${() => this.go(v, this.anchor)}>${t(this.localize, key)}</button>`)}
