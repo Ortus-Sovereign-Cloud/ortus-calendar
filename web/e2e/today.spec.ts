@@ -4,7 +4,12 @@ import { expect, test } from "@playwright/test";
 import en from "../src/locales/en.js";
 
 test("the start page's calendar card shows what is left of today", async ({ page }) => {
-  const start = Date.now() + 5 * 60_000;
+  // Noon of today, on the page's clock too: an event five minutes ahead is
+  // still today when the test runs just before midnight.
+  const noon = new Date();
+  noon.setHours(12, 0, 0, 0);
+  await page.clock.setFixedTime(noon);
+  const start = noon.getTime() + 5 * 60_000;
   const summary = `Flood briefing ${Date.now()}`;
   const made = await page.request.post("/api/v1/calendar/events", {
     headers: { "X-Requested-With": "ortus" },
